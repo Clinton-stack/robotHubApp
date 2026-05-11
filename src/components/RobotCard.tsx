@@ -2,9 +2,11 @@ import { ArrowRight, BellRing, Bot, Clock, Gauge, Wrench } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useLanguage } from '../i18n/LanguageProvider'
 import { useImportantUpdates } from '../updates/ImportantUpdatesProvider'
+import { useUpdateConfirmations } from '../updates/UpdateConfirmationsProvider'
 import { StatusBadge } from './StatusBadge'
 import { cardClassName, compactButtonClassName } from '../styles/ui'
 import type { Robot } from '../types/robot'
+import type { ImportantUpdate } from '../types/update'
 
 type RobotCardProps = {
   robot: Robot
@@ -13,10 +15,13 @@ type RobotCardProps = {
 export function RobotCard({ robot }: RobotCardProps) {
   const { t } = useLanguage()
   const { getBlockingRobotUpdates, getRobotUpdates } = useImportantUpdates()
+  const { isConfirmed } = useUpdateConfirmations()
   const robotUpdates = getRobotUpdates(robot.id)
   const blockingUpdates = getBlockingRobotUpdates(robot.id)
-  const updateBadgeClassName =
-    blockingUpdates.length > 0 ? 'bg-red-600 text-white' : 'bg-amber-50 text-amber-700 ring-1 ring-amber-100'
+  const unreadUpdates = robotUpdates.filter((update) => update.requiresConfirmation && !isConfirmed(update))
+  const unreadBlockingUpdates = blockingUpdates.filter((update) => !isConfirmed(update))
+  const priorityUpdate = getPriorityUpdate(unreadBlockingUpdates, unreadUpdates, robotUpdates)
+  const updateBadge = getUpdateBadge(priorityUpdate, unreadUpdates.length, robotUpdates.length)
 
   return (
     <article className={`${cardClassName} group flex min-h-[360px] flex-col overflow-hidden transition hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-200`}>
@@ -40,13 +45,13 @@ export function RobotCard({ robot }: RobotCardProps) {
         <div className="absolute right-4 top-4">
           <StatusBadge status={robot.status} />
         </div>
-        {robotUpdates.length > 0 && (
+        {priorityUpdate && updateBadge && (
           <Link
             to={`/robots/${robot.id}/updates`}
-            className={`absolute bottom-4 left-4 inline-flex h-8 items-center gap-2 rounded-xl px-3 text-xs font-black shadow-sm ${updateBadgeClassName}`}
+            className={`absolute bottom-4 left-4 inline-flex h-8 items-center gap-2 rounded-xl px-3 text-xs font-black shadow-sm ${updateBadge.className}`}
           >
             <BellRing className="h-4 w-4" aria-hidden="true" />
-            {robotUpdates.length}
+            {updateBadge.label}
           </Link>
         )}
       </div>
@@ -69,6 +74,19 @@ export function RobotCard({ robot }: RobotCardProps) {
             </span>
           ))}
         </div>
+
+        {priorityUpdate && (
+          <Link
+            to={`/robots/${robot.id}/updates`}
+            className="mt-3 rounded-xl border border-amber-100 bg-amber-50 p-3 text-left transition hover:border-amber-200 hover:bg-amber-100"
+          >
+            <p className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.1em] text-amber-700">
+              <BellRing className="h-3.5 w-3.5" aria-hidden="true" />
+              {priorityUpdate.severity === 'stop_work' ? 'Stop work notice' : 'Update notice'}
+            </p>
+            <p className="mt-1 line-clamp-2 text-sm font-bold leading-5 text-slate-800">{priorityUpdate.title}</p>
+          </Link>
+        )}
 
         <div className="mt-4 grid gap-2 text-sm text-slate-600">
           <div className="flex items-center gap-2">
@@ -105,4 +123,51 @@ export function RobotCard({ robot }: RobotCardProps) {
       </div>
     </article>
   )
+}
+
+function getPriorityUpdate(
+  unreadBlockingUpdates: ImportantUpdate[],
+  unreadUpdates: ImportantUpdate[],
+  robotUpdates: ImportantUpdate[],
+) {
+  return (
+    unreadBlockingUpdates.find((update) => update.severity === 'stop_work') ??
+    unreadBlockingUpdates[0] ??
+    unreadUpdates[0] ??
+    robotUpdates.find((update) => update.severity === 'stop_work') ??
+    robotUpdates.find((update) => update.severity === 'critical') ??
+    robotUpdates[0]
+  )
+}
+
+function getUpdateBadge(update: ImportantUpdate | undefined, unreadCount: number, updateCount: number) {
+  if (!update) {
+    return undefined
+  }
+
+  if (update.severity === 'stop_work') {
+    return {
+      className: 'bg-slate-950 text-white',
+      label: 'Stop work',
+    }
+  }
+
+  if (update.severity === 'critical') {
+    return {
+      className: 'bg-red-600 text-white',
+      label: unreadCount > 0 ? `${unreadCount} critical` : 'Critical',
+    }
+  }
+
+  if (unreadCount > 0) {
+    return {
+      className: 'bg-amber-50 text-amber-700 ring-1 ring-amber-100',
+      label: `${unreadCount} unread`,
+    }
+  }
+
+  return {
+    className: 'bg-white/95 text-slate-700 ring-1 ring-slate-100',
+    label: `${updateCount} updates`,
+  }
 }

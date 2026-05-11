@@ -1,18 +1,40 @@
-import { CalendarDays, Search, ShieldCheck } from 'lucide-react'
+import { BellRing, CalendarDays, Search, ShieldCheck } from 'lucide-react'
+import { useMemo, useState } from 'react'
 import { AppNavbar } from '../components/AppNavbar'
 import { RobotCard } from '../components/RobotCard'
 import { robots } from '../data/robots'
 import { useLanguage } from '../i18n/LanguageProvider'
 import { cardClassName, inputClassName } from '../styles/ui'
-
-const statusCounts = {
-  ok: robots.filter((robot) => robot.status === 'ok').length,
-  warning: robots.filter((robot) => robot.status === 'warning').length,
-  critical: robots.filter((robot) => robot.status === 'critical').length,
-}
+import { useImportantUpdates } from '../updates/ImportantUpdatesProvider'
+import { useUpdateConfirmations } from '../updates/UpdateConfirmationsProvider'
 
 export function RobotGridPage() {
   const { t } = useLanguage()
+  const { getRobotUpdates } = useImportantUpdates()
+  const { isConfirmed } = useUpdateConfirmations()
+  const [query, setQuery] = useState('')
+  const filteredRobots = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+
+    if (!normalizedQuery) {
+      return robots
+    }
+
+    return robots.filter((robot) =>
+      [robot.name, robot.assetId, robot.location, robot.type, robot.status, ...robot.optics]
+        .join(' ')
+        .toLowerCase()
+        .includes(normalizedQuery),
+    )
+  }, [query])
+  const statusCounts = {
+    ok: filteredRobots.filter((robot) => robot.status === 'ok').length,
+    warning: filteredRobots.filter((robot) => robot.status === 'warning').length,
+    critical: filteredRobots.filter((robot) => robot.status === 'critical').length,
+  }
+  const attentionRobotCount = filteredRobots.filter((robot) =>
+    getRobotUpdates(robot.id).some((update) => update.requiresConfirmation && !isConfirmed(update)),
+  ).length
 
   return (
     <main className="min-h-svh bg-[#f7f9fc] text-slate-950">
@@ -32,7 +54,12 @@ export function RobotGridPage() {
             <label className="relative w-full max-w-md">
               <span className="sr-only">Search robots</span>
               <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-              <input className={`${inputClassName} w-full pl-12`} placeholder={t('common.searchRobots')} />
+              <input
+                className={`${inputClassName} w-full pl-12`}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t('common.searchRobots')}
+                value={query}
+              />
             </label>
           </div>
 
@@ -60,7 +87,7 @@ export function RobotGridPage() {
           </div>
         </div>
 
-        <div className="mt-5 grid gap-4 sm:grid-cols-3">
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-xl border border-emerald-100 bg-white p-4 shadow-sm">
             <p className="text-sm font-bold text-emerald-700">{t('common.statusGreen')}</p>
             <p className="mt-1 text-2xl font-black text-emerald-900">{statusCounts.ok}</p>
@@ -73,12 +100,23 @@ export function RobotGridPage() {
             <p className="text-sm font-bold text-red-700">{t('common.statusRed')}</p>
             <p className="mt-1 text-2xl font-black text-red-900">{statusCounts.critical}</p>
           </div>
+          <div className="rounded-xl border border-blue-100 bg-white p-4 shadow-sm">
+            <p className="flex items-center gap-2 text-sm font-bold text-blue-700">
+              <BellRing className="h-4 w-4" aria-hidden="true" />
+              Updates to confirm
+            </p>
+            <p className="mt-1 text-2xl font-black text-blue-900">{attentionRobotCount}</p>
+          </div>
         </div>
 
         <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {robots.map((robot) => (
-            <RobotCard robot={robot} key={robot.id} />
-          ))}
+          {filteredRobots.length > 0 ? (
+            filteredRobots.map((robot) => <RobotCard robot={robot} key={robot.id} />)
+          ) : (
+            <div className={`${cardClassName} p-6 md:col-span-2 xl:col-span-3`}>
+              <p className="text-sm font-bold text-slate-500">No robots match this search.</p>
+            </div>
+          )}
         </div>
       </section>
     </main>
